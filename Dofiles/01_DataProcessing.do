@@ -57,6 +57,12 @@ total number of deliveries in ALL health centers in district X.
 * Merge in district weights derived from excel file (Malawi EmONC Report_Indicator Adjustments (Final))
 merge m:1 District_Assess using "U:\MalawiEmONC\Datain\weights.dta"
 
+* Create a geographic grouping based on regions
+g region = "."
+replace region = "North" if regexm(District_Assess, "(Chitipa|Karonga|Nkhata Bay|Rumphi|Mzimba|Likoma)")==1
+replace region = "Central" if regexm(District_Assess, "(Kasungu|Nkhotakota|Ntchisi|Dowa|Salima|Lilongwe|Mchinji|Dedza|Ntcheu)")==1
+replace region = "South" if regexm(District_Assess, "(Mangochi|Machinga|Zomba|Chiradzulu|Blantyre|Mwanza|Thyolo|Mulanje|Chikwawa|Nsanje|Phalombe|Balaka|Neno)")==1
+
 * EmONC Status - Check facility categorization and verify
 /* What clinics are classified as Emergency Obstetric and Neonatal Care (EmONC)?
 	emoncst - international status
@@ -85,9 +91,12 @@ foreach x of local sigf {
 * Create a binary variable indicating whether or not facility is BEmONC
 * If they sum to 7 == BASIC; sum to 9 == Comprehensive
 g byte basicSF = (sf1 + sf2 + sf3 + sf4 + sf5 + sf6 + sf7) == 7
+g byte noSF = (sf1 + sf2 + sf3 + sf4 + sf5 + sf6 + sf7 + sf8 + sf9) == 0
+*g byte threshSF = (sf1 + sf2 + sf3 + sf4 + sf5 + sf6 + sf7
 g byte compSF = (sf1 + sf2 + sf3 + sf4 + sf5 + sf6 + sf7 + sf8 + sf9 ) == 9
 la var basicSF "Facility meets basic requirements"
 la var compSF "Facility meets comprehensive requirements"
+la var noSF "Facility does not meet any basic requirements"
 
 * Create EmONC categorical variable
 g EmONC = 0
@@ -103,6 +112,9 @@ la values EmONC status
 tab EmONC emoncsta, mi
 tab EmONC emonc_st
 * EmONC status verified
+
+* Compare differences between intl EmONC status and Malawi definition
+g byte tagged_bemonc = (emoncsta==1 & emonc_st!=1)
 
 * Initialize function to calculate survey totals accounting for weighting
 qui local required_file mwtotals
@@ -339,16 +351,21 @@ drop tmp*
 mwtotals preEclampsia
 
 
+*************************
+* Midwifes per district *
+*************************
+mwtotals mod2q2g
 
 
+*************************
+* Availabilit of EmONC  *
+*************************
+* List EmONCs by District/Region
+table District_Assess emonc_st
+table District_Assess basicSF
 
-
-
-
-
-
-
-
+* Calculate weighted EmONCS
+egen totEm = total(basicSF), by(District_Assess)
 
 
 /* NOTES: Births calculated in excel spreadsheet: Malawi_EmONC_Assessment
@@ -359,17 +376,18 @@ replace fac_type = proper(fac_type)
 decode two_grou, gen(hosp_or_HC)
 replace hosp_or_HC = proper(hosp_or_HC)
 
+
 preserve
 #delimit ;
 keep fac_name hosp_or_HC sf* EmONC emoncsta emonc_st uniq_id 
 	two_grou uniq_id_Assess Name_facility_Assess Facility_type_Assess 
 	Ownership_Assess Region_name_HIS Region_code_SALB District_Assess 
-	Long_final Lat_final;
+	Long_final Lat_final Deliveries directCompl allMatDeath allstillBirths;
 #delimit cr	
 order uniq_id uniq_id_Assess fac_name Name_facility_Assess Facility_type_Assess ///
 hosp_or_HC Ownership_Assess Region_name_HIS Region_code_SALB District_Assess 
 order emonc_st emoncsta EmONC, last
 
 * Write results to availability tab of spreadsheet
-export excel using "$pathxls/Malawi_EmONC_Assessment", sheet("Availability") sheetmodify firstrow(variables)
+export excel using "$pathxls/Malawi_EmONC_Assessment_facilities", sheet("Availability") sheetmodify firstrow(variables)
 restore
